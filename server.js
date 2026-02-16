@@ -36,5 +36,5 @@ app.get("/", (req, res) => {
 
 app.listen(process.env.PORT, () => console.log("API running"));
 
-app.listen(process.env.PORT,()=>console.log("API running"));
+
 
