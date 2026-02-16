@@ -3,78 +3,112 @@ const User = require("./User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-const createAccess = (id)=> jwt.sign({id},process.env.JWT_ACCESS_SECRET,{expiresIn:"15m"});
-const createRefresh = (id)=> jwt.sign({id},process.env.JWT_REFRESH_SECRET,{expiresIn:"7d"});
+/* ---------------- TOKEN FUNCTIONS ---------------- */
+const createAccess = (id) =>
+  jwt.sign({ id }, process.env.JWT_ACCESS_SECRET, { expiresIn: "15m" });
 
+const createRefresh = (id) =>
+  jwt.sign({ id }, process.env.JWT_REFRESH_SECRET, { expiresIn: "7d" });
 
-// REGISTER
-router.post("/register", async(req,res)=>{
-  const {username,email,password} = req.body;
+/* ---------------- REGISTER ---------------- */
+router.post("/register", async (req, res) => {
+  try {
+    // SAFE BODY READ
+    const { username, email, password } = req.body || {};
 
-  if(await User.findOne({email}))
-    return res.status(400).json({msg:"Email exists"});
+    // VALIDATION
+    if (!username || !email || !password) {
+      return res.status(400).json({ msg: "All fields required" });
+    }
 
-  const hash = await bcrypt.hash(password,12);
-  const user = await User.create({username,email,password:hash});
+    const exist = await User.findOne({ email });
+    if (exist) return res.status(400).json({ msg: "Email already exists" });
 
-  res.json({msg:"Account created"});
+    const hash = await bcrypt.hash(password, 12);
+
+    await User.create({
+      username,
+      email,
+      password: hash
+    });
+
+    res.json({ msg: "Account created" });
+
+  } catch (err) {
+    console.error("REGISTER ERROR:", err);
+    res.status(500).json({ msg: "Server error" });
+  }
 });
 
+/* ---------------- LOGIN ---------------- */
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
 
-// LOGIN
-router.post("/login", async(req,res)=>{
-  const {email,password} = req.body;
-  const user = await User.findOne({email});
-  if(!user) return res.status(404).json({msg:"User not found"});
+    if (!email || !password)
+      return res.status(400).json({ msg: "Email & password required" });
 
-  const ok = await bcrypt.compare(password,user.password);
-  if(!ok) return res.status(401).json({msg:"Wrong password"});
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ msg: "User not found" });
 
-  const accessToken = createAccess(user._id);
-  const refreshToken = createRefresh(user._id);
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return res.status(401).json({ msg: "Wrong password" });
 
-  user.refreshToken = refreshToken;
-  await user.save();
+    const accessToken = createAccess(user._id);
+    const refreshToken = createRefresh(user._id);
 
-  res.cookie("refreshToken",refreshToken,{
-    httpOnly:true,
-    secure:false,
-    sameSite:"strict",
-    maxAge:7*24*60*60*1000
-  });
+    user.refreshToken = refreshToken;
+    await user.save();
 
-  res.json({accessToken});
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: false,
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.json({ accessToken });
+
+  } catch (err) {
+    console.error("LOGIN ERROR:", err);
+    res.status(500).json({ msg: "Server error" });
+  }
 });
 
+/* ---------------- REFRESH ---------------- */
+router.post("/refresh", async (req, res) => {
+  try {
+    const token = req.cookies.refreshToken;
+    if (!token) return res.status(401).json({ msg: "No refresh token" });
 
-// REFRESH TOKEN
-router.post("/refresh", async(req,res)=>{
-  const token = req.cookies.refreshToken;
-  if(!token) return res.status(401).json({msg:"No refresh token"});
-
-  try{
-    const decoded = jwt.verify(token,process.env.JWT_REFRESH_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
     const user = await User.findById(decoded.id);
 
-    if(user.refreshToken !== token)
-      return res.status(403).json({msg:"Token mismatch"});
+    if (!user || user.refreshToken !== token)
+      return res.status(403).json({ msg: "Invalid refresh token" });
 
-    res.json({accessToken:createAccess(user._id)});
-  }catch{
-    res.status(403).json({msg:"Invalid refresh"});
+    res.json({ accessToken: createAccess(user._id) });
+
+  } catch {
+    res.status(403).json({ msg: "Refresh expired" });
   }
 });
 
+/* ---------------- LOGOUT ---------------- */
+router.post("/logout", async (req, res) => {
+  try {
+    const token = req.cookies.refreshToken;
+    if (token) {
+      const decoded = jwt.decode(token);
+      if (decoded) await User.findByIdAndUpdate(decoded.id, { refreshToken: null });
+    }
 
-// LOGOUT
-router.post("/logout", async(req,res)=>{
-  const token = req.cookies.refreshToken;
-  if(token){
-    const decoded = jwt.decode(token);
-    if(decoded) await User.findByIdAndUpdate(decoded.id,{refreshToken:null});
+    res.clearCookie("refreshToken");
+    res.json({ msg: "Logged out" });
+
+  } catch {
+    res.status(500).json({ msg: "Server error" });
   }
-  res.clearCookie("refreshToken");
-  res.json({msg:"Logged out"});
 });
 
 module.exports = router;
