@@ -23,5 +23,18 @@ app.use("/api/auth",authRoutes);
 app.get("/api/private",protect,(req,res)=>{
   res.json({msg:"Welcome authenticated user",user:req.user});
 });
+app.use("/api/auth", authRoutes);
+
+app.get("/api/private", protect, (req, res) => {
+  res.json({ msg: "Welcome authenticated user", user: req.user });
+});
+
+// ADD THIS
+app.get("/", (req, res) => {
+  res.send("Cyber Auth API Live 🚀");
+});
+
+app.listen(process.env.PORT, () => console.log("API running"));
 
 app.listen(process.env.PORT,()=>console.log("API running"));
+
